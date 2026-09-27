@@ -1,0 +1,10 @@
+## Interface: 16001, 120100
+## Title: Scale'thas
+## Notes: Simple UI scale controls, with a one-click pixel-perfect option.
+## Version: 0.1.0
+## X-License: GPL-3.0-or-later
+## SavedVariables: ScalethasDB
+
+Scale.lua
+Core.lua
+Options.lua
