@@ -1,5 +1,9 @@
 # Scale'thas
 
+## 1.0.0
+
+- Promoted to the live WoW Forever client. The Midnight client is no longer officially supported.
+
 ## 0.1.0
 
 - First release: set your UI scale anywhere from 0.30 to 1.15 with a slider, a number box, or a one-click pixel-perfect button.
