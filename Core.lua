@@ -5,7 +5,14 @@ local PREFIX = "|cfff0c050Scale'thas|r: "
 
 local db
 local waitingOnCombat = false
+-- Set by a change the player made; cleared once it has been applied.
+local playerChangePending = false
+-- The scale to go back to if the reload popup is cancelled: captured when a change is made, kept once the popup is up.
+local beforeChange
+local revertTo
 local listeners = {}
+
+local RELOAD_POPUP = "SCALETHAS_RELOAD"
 
 local function say(message)
   print(PREFIX .. message)
@@ -32,16 +39,34 @@ local function apply()
   end
   waitingOnCombat = false
   -- Skipping no-op calls stops our own SetScale from retriggering the scale events.
-  if math.abs(UIParent:GetScale() - db.scale) > 0.001 then
+  local changed = math.abs(UIParent:GetScale() - db.scale) > 0.001
+  if changed then
     UIParent:SetScale(db.scale)
-    -- Edit Mode only measures UIParent on Blizzard's scale events, which fire before this.
-    EditModeMagnetismManager:UpdateTopLevelParentPoints()
+    -- Never call into Edit Mode from here: its stored values would be tainted and break Blizzard's frames.
+  end
+  if playerChangePending then
+    playerChangePending = false
+    -- Edit Mode only re-measures UIParent in Blizzard's own code, which a reload runs.
+    if changed then
+      revertTo = revertTo or beforeChange
+      StaticPopup_Show(RELOAD_POPUP)
+    end
+    beforeChange = nil
   end
 end
 
--- Blizzard resets UIParent's scale in its own handlers for these events; wait a frame to run after them.
-local function applySoon()
-  C_Timer.After(0, apply)
+local function revert()
+  local previous = revertTo
+  revertTo = nil
+  if not previous then return end
+  db.scale = previous.scale
+  if previous.scale then
+    apply()
+  elseif not InCombatLockdown() then
+    -- Back to Blizzard's scale, which Scale'thas never stores.
+    UIParent:SetScale(previous.uiScale)
+  end
+  notify()
 end
 
 function addon.Get()
@@ -60,7 +85,11 @@ function addon.Set(value)
   else
     say(string.format("Scale set to %s.", fmt(scale)))
   end
+  if not revertTo and not beforeChange then
+    beforeChange = { scale = db.scale, uiScale = UIParent:GetScale() }
+  end
   db.scale = scale
+  playerChangePending = true
   apply()
   notify()
 end
@@ -82,8 +111,28 @@ end
 function addon.Reset()
   db.scale = nil
   waitingOnCombat = false
+  playerChangePending = false
+  beforeChange = nil
+  revertTo = nil
   notify()
 end
+
+StaticPopupDialogs[RELOAD_POPUP] = {
+  text = "Changing scale requires UI reload.",
+  button1 = "Reload",
+  button2 = CANCEL,
+  timeout = 0,
+  whileDead = true,
+  hideOnEscape = true,
+  OnAccept = function()
+    revertTo = nil
+    ReloadUI()
+  end,
+  -- "clicked" is Cancel or Escape; "override" is Blizzard re-showing the open popup for another change.
+  OnCancel = function(_, _, reason)
+    if reason ~= "override" then revert() end
+  end,
+}
 
 local RESET_POPUP = "SCALETHAS_RESET"
 
@@ -141,10 +190,14 @@ events:SetScript("OnEvent", function(_, event, arg1)
       else
         db.scale = nil
       end
+      -- Apply before PLAYER_ENTERING_WORLD, so Blizzard's own handler measures UIParent at our scale for Edit Mode.
+      apply()
     end
   elseif event == "PLAYER_REGEN_ENABLED" then
     if waitingOnCombat then apply() end
   else
-    applySoon()
+    -- The engine has already reset the scale before any handler runs, so re-apply at once:
+    -- timers can't fire during a loading screen, and Blizzard's login re-measure for Edit Mode must see our scale.
+    apply()
   end
 end)
